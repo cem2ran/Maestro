@@ -1,13 +1,16 @@
 package maestro.cli.graphics
 
+import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.Color
 import org.jetbrains.skia.Font
+import org.jetbrains.skia.Image
+import org.jetbrains.skia.ImageInfo
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.Rect
 import org.jetbrains.skia.Surface
 import org.jetbrains.skiko.toImage
-import java.awt.image.BufferedImage
+import java.io.IOException
 import javax.imageio.ImageIO
 
 class SkiaFrameRenderer : FrameRenderer {
@@ -41,19 +44,57 @@ class SkiaFrameRenderer : FrameRenderer {
 
     private val textClipper = SkiaTextClipper()
 
-    override fun render(
+    private var surface: Surface? = null
+    private var bitmap: Bitmap? = null
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
+
+    override fun renderBgra(
         outputWidthPx: Int,
         outputHeightPx: Int,
-        screen: BufferedImage,
-        text: String
-    ): BufferedImage {
-        return Surface.makeRasterN32Premul(outputWidthPx, outputHeightPx).use { surface ->
-            drawScene(surface.canvas, outputWidthPx.toFloat(), outputHeightPx.toFloat(), screen, text)
-            surface.makeImageSnapshot().toBufferedImage()
+        screen: Image,
+        text: String,
+        destBgra: ByteArray,
+    ) {
+        val surface = obtainSurface(outputWidthPx, outputHeightPx)
+        drawScene(surface.canvas, outputWidthPx.toFloat(), outputHeightPx.toFloat(), screen, text)
+        val bitmap = obtainBitmap(outputWidthPx, outputHeightPx)
+        if (!surface.readPixels(bitmap, 0, 0)) {
+            throw IOException("Failed to read composited Skia frame")
         }
+        val pixels = bitmap.readPixels(bitmap.imageInfo, outputWidthPx * 4, 0, 0)
+            ?: throw IOException("Failed to copy composited Skia pixels")
+        if (pixels.size != destBgra.size) {
+            throw IOException("Unexpected frame size ${pixels.size}, expected ${destBgra.size}")
+        }
+        pixels.copyInto(destBgra)
     }
 
-    private fun drawScene(canvas: Canvas, outputWidthPx: Float, outputHeightPx: Float, screen: BufferedImage, text: String) {
+    private fun obtainSurface(width: Int, height: Int): Surface {
+        val existing = surface
+        if (existing != null && surfaceWidth == width && surfaceHeight == height) {
+            return existing
+        }
+        existing?.close()
+        bitmap?.close()
+        bitmap = null
+        val created = Surface.makeRasterN32Premul(width, height)
+        surface = created
+        surfaceWidth = width
+        surfaceHeight = height
+        return created
+    }
+
+    private fun obtainBitmap(width: Int, height: Int): Bitmap {
+        val existing = bitmap
+        if (existing != null) return existing
+        val created = Bitmap()
+        created.allocPixels(ImageInfo.makeN32Premul(width, height))
+        bitmap = created
+        return created
+    }
+
+    private fun drawScene(canvas: Canvas, outputWidthPx: Float, outputHeightPx: Float, screen: Image, text: String) {
         val fullScreenRect = Rect(0f, 0f, outputWidthPx, outputHeightPx)
         canvas.drawImageRect(backgroundImage, fullScreenRect)
 
@@ -62,12 +103,12 @@ class SkiaFrameRenderer : FrameRenderer {
         drawContent(canvas, paddedScreenRect, screen, text)
     }
 
-    private fun drawContent(canvas: Canvas, containerRect: Rect, screen: BufferedImage, text: String) {
+    private fun drawContent(canvas: Canvas, containerRect: Rect, screen: Image, text: String) {
         val imageRect = drawDevice(canvas, containerRect, screen)
         drawTerminal(canvas, containerRect, imageRect, text)
     }
 
-    private fun drawDevice(canvas: Canvas, containerRect: Rect, screen: BufferedImage): Rect {
+    private fun drawDevice(canvas: Canvas, containerRect: Rect, screen: Image): Rect {
         val cornerRadius = 20f
         val deviceImageScale = containerRect.height / screen.height.toFloat()
         var deviceImageRect = Rect(0f, 0f, screen.width.toFloat(), screen.height.toFloat()).scale(deviceImageScale)
@@ -75,7 +116,7 @@ class SkiaFrameRenderer : FrameRenderer {
         val deviceImageRectRounded = deviceImageRect.toRRect(cornerRadius)
         canvas.save()
         canvas.clipRRect(deviceImageRectRounded, true)
-        canvas.drawImageRect(screen.toImage(), deviceImageRect)
+        canvas.drawImageRect(screen, deviceImageRect)
         canvas.restore()
         canvas.drawRectShadow(deviceImageRectRounded, 0f, 0f, 20f, 0.5f, shadowColor)
         return deviceImageRect
