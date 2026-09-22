@@ -48,12 +48,16 @@ fun Image.toBufferedImage(): BufferedImage {
     Canvas(storage).drawImage(this, 0f, 0f)
 
     val bytes = storage.readPixels(storage.imageInfo, (this.width * 4), 0, 0)!!
-    val buffer = DataBufferByte(bytes, bytes.size)
+    return wrapBgraBufferedImage(this.width, this.height, bytes)
+}
+
+fun wrapBgraBufferedImage(width: Int, height: Int, bgra: ByteArray): BufferedImage {
+    val buffer = DataBufferByte(bgra, bgra.size)
     val raster = Raster.createInterleavedRaster(
         buffer,
-        this.width,
-        this.height,
-        this.width * 4, 4,
+        width,
+        height,
+        width * 4, 4,
         intArrayOf(2, 1, 0, 3),     // BGRA order
         null
     )
@@ -64,8 +68,7 @@ fun Image.toBufferedImage(): BufferedImage {
         Transparency.TRANSLUCENT,
         DataBuffer.TYPE_BYTE
     )
-
-    return BufferedImage(colorModel, raster!!, false, null)
+    return BufferedImage(colorModel, raster, false, null)
 }
 
 fun Rect.toRRect(radii: Float): RRect {
