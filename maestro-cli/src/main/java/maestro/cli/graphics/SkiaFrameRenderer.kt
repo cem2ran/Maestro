@@ -3,8 +3,10 @@ package maestro.cli.graphics
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.Color
 import org.jetbrains.skia.Font
+import org.jetbrains.skia.Image
 import org.jetbrains.skia.Paint
 import org.jetbrains.skia.Rect
+import org.jetbrains.skia.SamplingMode
 import org.jetbrains.skia.Surface
 import org.jetbrains.skiko.toImage
 import java.awt.image.BufferedImage
@@ -55,7 +57,7 @@ class SkiaFrameRenderer : FrameRenderer {
 
     private fun drawScene(canvas: Canvas, outputWidthPx: Float, outputHeightPx: Float, screen: BufferedImage, text: String) {
         val fullScreenRect = Rect(0f, 0f, outputWidthPx, outputHeightPx)
-        canvas.drawImageRect(backgroundImage, fullScreenRect)
+        drawImage(canvas, backgroundImage, fullScreenRect)
 
         val paddedScreenRect = fullScreenRect.inflate(-scenePadding)
 
@@ -75,7 +77,7 @@ class SkiaFrameRenderer : FrameRenderer {
         val deviceImageRectRounded = deviceImageRect.toRRect(cornerRadius)
         canvas.save()
         canvas.clipRRect(deviceImageRectRounded, true)
-        canvas.drawImageRect(screen.toImage(), deviceImageRect)
+        drawImage(canvas, screen.toImage(), deviceImageRect)
         canvas.restore()
         canvas.drawRectShadow(deviceImageRectRounded, 0f, 0f, 20f, 0.5f, shadowColor)
         return deviceImageRect
@@ -156,6 +158,23 @@ class SkiaFrameRenderer : FrameRenderer {
         val focusedLineIndex = getFocusedLineIndex(string)
         val focusedLinePadding = 5
         textClipper.renderClippedText(canvas, paddedContentRect, string, focusedLineIndex + focusedLinePadding)
+    }
+
+    /**
+     * Skia's default [SamplingMode] is nearest-neighbor. The device frame is a
+     * portrait capture scaled into a slice of the 1080p canvas, and nearest
+     * minification turns UI text and 1px strokes into the grainy, crunchy look.
+     * Catmull-Rom reconstructs that downsample. A 1:1 blit (the background at
+     * the default output size) stays nearest so it is not softened.
+     */
+    private fun drawImage(canvas: Canvas, image: Image, dst: Rect) {
+        val src = Rect.makeWH(image.width.toFloat(), image.height.toFloat())
+        val sampling = if (src.width == dst.width && src.height == dst.height) {
+            SamplingMode.DEFAULT
+        } else {
+            SamplingMode.CATMULL_ROM
+        }
+        canvas.drawImageRect(image, src, dst, sampling, null, true)
     }
 
     private fun getFocusedLineIndex(text: String): Int {
