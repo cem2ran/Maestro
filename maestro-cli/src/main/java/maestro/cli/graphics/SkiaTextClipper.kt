@@ -21,8 +21,13 @@ class SkiaTextClipper {
         color = Color.WHITE
     }
 
+    private val fontCollection = FontCollection().setDefaultFontManager(FontMgr.default)
+    private var cachedText: String? = null
+    private var cachedWidth: Float = Float.NaN
+    private var cachedParagraph: Paragraph? = null
+
     fun renderClippedText(canvas: Canvas, rect: Rect, text: String, focusedLine: Int) {
-        val p = createParagraph(text, rect.width)
+        val p = paragraphFor(text, rect.width)
         val focusedLineRange = getRangeForLine(text, focusedLine)
         val focusedLineBottom = p.getRectsForRange(
             start = focusedLineRange.first,
@@ -53,12 +58,20 @@ class SkiaTextClipper {
         return Pair(start, end)
     }
 
-    private fun createParagraph(text: String, width: Float): Paragraph {
-        val fontCollection = FontCollection().setDefaultFontManager(FontMgr.default)
-        return ParagraphBuilder(ParagraphStyle(), fontCollection)
+    private fun paragraphFor(text: String, width: Float): Paragraph {
+        val cached = cachedParagraph
+        if (cached != null && cachedText == text && cachedWidth == width) {
+            return cached
+        }
+        cached?.close()
+        val paragraph = ParagraphBuilder(ParagraphStyle(), fontCollection)
             .pushStyle(terminalTextStyle)
             .addText(text)
             .build()
             .apply { layout(width) }
+        cachedText = text
+        cachedWidth = width
+        cachedParagraph = paragraph
+        return paragraph
     }
 }
