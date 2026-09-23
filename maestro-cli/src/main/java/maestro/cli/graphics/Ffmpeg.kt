@@ -18,7 +18,7 @@ internal object Ffmpeg {
     fun requireBinary(): String {
         return findBinary()
             ?: throw CliError(
-                "ffmpeg is required for `maestro record --local`. " +
+                "ffmpeg was requested for `maestro record --local` but was not found. " +
                     "Install ffmpeg, add it to PATH, or set MAESTRO_FFMPEG to the binary."
             )
     }

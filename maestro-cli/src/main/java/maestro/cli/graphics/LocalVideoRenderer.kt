@@ -140,14 +140,12 @@ class LocalVideoRenderer internal constructor(
                                 ColorAlphaType.UNPREMUL,
                             )
 
-                            while (rawIn.readExact(decodeBuf)) {
-                                val timestampSeconds = frameIndex.toDouble() / outputFPS
-                                val text = textAt(textKeyframes, timestampSeconds)
-                                val screenUnchanged = havePrev && decodeBuf.contentEquals(prevScreen) && text == prevText
+                            fun writeComposite(screenBgra: ByteArray, text: String) {
+                                val screenUnchanged = havePrev && screenBgra.contentEquals(prevScreen) && text == prevText
                                 if (screenUnchanged) {
                                     rawOut.write(prevOutput)
                                 } else {
-                                    Image.makeRaster(screenInfo, decodeBuf, probe.width * 4).use { screen ->
+                                    Image.makeRaster(screenInfo, screenBgra, probe.width * 4).use { screen ->
                                         frameRenderer.renderBgra(
                                             outputWidthPx,
                                             outputHeightPx,
@@ -157,16 +155,29 @@ class LocalVideoRenderer internal constructor(
                                         )
                                     }
                                     rawOut.write(outputBuf)
-                                    decodeBuf.copyInto(prevScreen)
+                                    screenBgra.copyInto(prevScreen)
                                     outputBuf.copyInto(prevOutput)
                                     prevText = text
                                     havePrev = true
                                 }
+                            }
+
+                            while (rawIn.readExact(decodeBuf)) {
+                                writeComposite(decodeBuf, textAt(textKeyframes, frameIndex.toDouble() / outputFPS))
                                 progress.set(((frameIndex + 1).toFloat() / outputFrameCount).coerceIn(0f, 1f))
                                 frameIndex++
                             }
                             if (frameIndex == 0) {
                                 throw CliError("ffmpeg produced no video frames from ${screenRecording.absolutePath}")
+                            }
+                            // iOS screen recordings are VFR: last PTS can land
+                            // well before container duration. JCodec holds the
+                            // last picture through totalDuration; pad so both
+                            // encoders emit the same length.
+                            while (frameIndex < outputFrameCount) {
+                                writeComposite(prevScreen, textAt(textKeyframes, frameIndex.toDouble() / outputFPS))
+                                progress.set(((frameIndex + 1).toFloat() / outputFrameCount).coerceIn(0f, 1f))
+                                frameIndex++
                             }
                         }
                     }

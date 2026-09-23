@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CLI: render `maestro record --local` with ffmpeg when available, and fall back to JCodec
+
 ## 2.10.0
 
 - CLI: accept a full Android system image path in `--device-os`, in addition to a version like `android-34`
